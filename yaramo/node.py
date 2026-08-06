@@ -112,6 +112,15 @@ class Node(BaseElement):
         if self.connected_edge_on_right == edge:
             self.connected_edge_on_right = None
 
+    def replace_edge(self, old_edge: Edge, new_edge: Edge):
+        self.connected_edges.remove(old_edge)
+        if self.connected_edge_on_head == old_edge:
+            self.set_connection_head_edge(new_edge)
+        if self.connected_edge_on_left == old_edge:
+            self.set_connection_left_edge(new_edge)
+        if self.connected_edge_on_right == old_edge:
+            self.set_connection_right_edge(new_edge)
+
     def remove_edge_to_node(self, node: Node):
         """Removes the edge to the given node and removes the node from the connected_nodes list."""
         edge = self.get_edge_to_node(node)
