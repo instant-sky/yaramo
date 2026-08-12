@@ -55,6 +55,7 @@ class Compare:
         exclude_element_list=None,
         skip_signals: bool = False,
     ) -> CompareResult:
+        print("compare started")
         if given_node_matching is None:
             given_node_matching = {}
         if exclude_element_list is None:
@@ -88,6 +89,7 @@ class Compare:
                 result, topology_a, topology_b, given_node_matching, skip_signals
             )
         if compare_mode == CompareMode.CONTAINMENT:
+            print("containment mapping case")
             topology_a, topology_b = edge_shape_comparison(topology_a, topology_b)
             Compare._calc_isomorphic_matching(
                 result=result, topology_a=topology_a, topology_b=topology_b, given_node_matching=given_node_matching, skip_signals=True

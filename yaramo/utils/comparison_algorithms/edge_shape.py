@@ -3,6 +3,7 @@ from ...model import Topology, Edge, Node, GeoNode, Wgs84GeoNode, EdgeConnection
 import math
 import networkx as nx
 import matplotlib.pyplot as plt
+import pyproj
 
 
 def get_edge_polyline(edge: Edge) -> list[tuple[float, float]]:
@@ -27,7 +28,7 @@ def point_to_polyline_min_distance(px: float, py: float, reference_polyline: lis
     best = float("inf")
     for k in range(len(reference_polyline) - 1):
         d = point_segment_distance(
-            px, py, reference_polyline[k][0], reference_polyline[k][1], reference_polyline[k+1][0], reference_polyline[k+1][1]
+            float(px), float(py), float(reference_polyline[k][0]), float(reference_polyline[k][1]), float(reference_polyline[k+1][0]), float(reference_polyline[k+1][1])
         )
         if d < best:
             best = d
@@ -49,8 +50,40 @@ def edge_fully_contained(
     return True
 
 
+def _get_utm_transformer(
+    polylines: list[list[tuple[float, float]]],
+) -> pyproj.Transformer:
+    all_coords = [coord for polyline in polylines for coord in polyline]
+    mean_lon = sum(x for x, y in all_coords) / len(all_coords)
+    mean_lat = sum(y for x, y in all_coords) / len(all_coords)
+    utm_zone = int((mean_lon + 180) / 6) + 1
+    epsg = 32600 + utm_zone if mean_lat >= 0 else 32700 + utm_zone
+    return pyproj.Transformer.from_crs(
+        "EPSG:4326", f"EPSG:{epsg}", always_xy=True
+    )
+
+
+def _project_polyline(
+    polyline: list[tuple[float, float]],
+    transformer: pyproj.Transformer,
+) -> list[tuple[float, float]]:
+    return [transformer.transform(x, y) for x, y in polyline]
+
+
 def _short_id(uuid: str, full: bool) -> str:
     return uuid if full else uuid[-4:]
+
+
+def _to_plot_coordinates(geo_node: GeoNode) -> tuple[float, float]:
+    """Return the (horizontal, vertical) plot coordinates of a geo node.
+
+    ``Wgs84GeoNode`` stores latitude in ``x`` and longitude in ``y`` (the order
+    expected by the haversine library), so the values are swapped here to get the
+    usual map orientation with longitude east-west on the x-axis.
+    """
+    if isinstance(geo_node, Wgs84GeoNode):
+        return (float(geo_node.y), float(geo_node.x))
+    return (float(geo_node.x), float(geo_node.y))
 
 
 def visualize_topology(
@@ -87,10 +120,10 @@ def visualize_topology(
     positions: dict[Node, tuple[float, float]] = {}
     for node in topology.nodes.values():
         if node.geo_node is not None:
-            positions[node] = (float(node.geo_node.x), float(node.geo_node.y))
+            positions[node] = _to_plot_coordinates(node.geo_node)
     for node in highlight_nodes:
         if node not in positions and node.geo_node is not None:
-            positions[node] = (float(node.geo_node.x), float(node.geo_node.y))
+            positions[node] = _to_plot_coordinates(node.geo_node)
 
     # edges as polylines, plus highlighted edges no longer in the topology
     edges = list(topology.edges.values())
@@ -99,6 +132,8 @@ def visualize_topology(
             edges.append(edge)
     for edge in edges:
         coords = get_edge_polyline(edge)
+        if isinstance(edge.node_a.geo_node, Wgs84GeoNode):
+            coords = [(c[1], c[0]) for c in coords]
         xs, ys = [c[0] for c in coords], [c[1] for c in coords]
         highlighted = edge in highlight_edges
         ax.plot(
@@ -110,7 +145,8 @@ def visualize_topology(
             zorder=2,
         )
         for geo_node in edge.intermediate_geo_nodes:
-            ax.scatter([geo_node.x], [geo_node.y], color="0.3", s=10, zorder=2.5)
+            px, py = _to_plot_coordinates(geo_node)
+            ax.scatter([px], [py], color="0.3", s=10, zorder=2.5)
         if label_edges or highlighted:
             mid = coords[len(coords) // 2]
             ax.annotate(
@@ -213,6 +249,7 @@ def clean_topology(topology: Topology, edges_to_remove: list[Edge]):
         if len(node.connected_edges) == 3:
             raise ValueError("no edges removed but node was connected to removed edge.")
         if len(node.connected_edges) == 2: # illegal node state -> node needs to be removed, adjacent edges form union
+            print(f"removing node and checking edge")
             topology.nodes.pop(node.uuid)
             
             edge_a: Edge = node.connected_edges[0]
@@ -237,9 +274,12 @@ def clean_topology(topology: Topology, edges_to_remove: list[Edge]):
                 highlight_edges={edge_a, edge_b},
             )
         if len(node.connected_edges) == 1: # switch -> end, legal
+            print("legal node remaining")
             continue
         if len(node.connected_edges) == 0: # all edges removed, just remove node
+            print(f"removing node {node}")
             topology.nodes.pop(node.uuid)
+            visualize_topology(topology, title=f"removed node {_short_id(node.uuid, False)}", highlight_nodes={node})
     return topology
 
 
@@ -247,33 +287,58 @@ def edge_shape_comparison(
     topology_a: Topology,
     topology_b: Topology,
 ):
-    polylines_a: dict[Edge: list[tuple[float, float]]] = {
+    raw_polylines_a: dict[Edge, list[tuple[float, float]]] = {
         edge: get_edge_polyline(edge) for edge in topology_a.edges.values()
     }
 
-    polylines_b = {
+    raw_polylines_b = {
         edge: get_edge_polyline(edge) for edge in topology_b.edges.values()
     }
 
-    only_in_a: dict[Edge,tuple[float, float]] = {}
-    only_in_b: dict[Edge,tuple[float, float]] = {}
+    polylines_a = raw_polylines_a
+    polylines_b = raw_polylines_b
+
+    is_wgs84 = any(
+        isinstance(node.geo_node, Wgs84GeoNode)
+        for topology in (topology_a, topology_b)
+        for node in topology.nodes.values()
+    )
+    if is_wgs84:
+        transformer = _get_utm_transformer(
+            list(raw_polylines_a.values()) + list(raw_polylines_b.values())
+        )
+        polylines_a = {
+            edge: _project_polyline(polyline, transformer)
+            for edge, polyline in raw_polylines_a.items()
+        }
+        polylines_b = {
+            edge: _project_polyline(polyline, transformer)
+            for edge, polyline in raw_polylines_b.items()
+        }
+
+    only_in_a: dict[Edge, tuple[float, float]] = {}
+    only_in_b: dict[Edge, tuple[float, float]] = {}
 
 
     for edge, polyline in polylines_a.items():
         if not edge_fully_contained(polyline, polylines_b.values()):
-            only_in_a[edge] = polyline
+            only_in_a[edge] = raw_polylines_a[edge]
 
     for edge, polyline in polylines_b.items():
         if not edge_fully_contained(polyline, polylines_a.values()):
-            only_in_b[edge] = polyline
+            only_in_b[edge] = raw_polylines_b[edge]
 
     print(f"only in a: {only_in_a}")
     print(f"only in b: {only_in_b}")
 
     visualize_topologies(topology_a, topology_b)
 
+    print("continuing3")
+
     topology_a = clean_topology(topology_a, only_in_a)
     topology_b = clean_topology(topology_b, only_in_b)
+
+    visualize_topologies(topology_a, topology_b)
 
     topology_a.update_edge_lengths()
     topology_b.update_edge_lengths()
