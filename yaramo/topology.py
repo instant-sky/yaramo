@@ -211,8 +211,8 @@ class Topology(BaseElement):
             if "geo_node" in node and node["geo_node"] is not None:
                 geo_node = obj["objects"][node["geo_node"]]
                 geo_node_obj = Wgs84GeoNode(
-                    obj["objects"][geo_node["geo_point"]]["x"],
-                    obj["objects"][geo_node["geo_point"]]["y"],
+                    geo_node["x"],
+                    geo_node["y"],
                     name=geo_node["name"],
                     uuid=geo_node["uuid"],
                 )
@@ -241,8 +241,8 @@ class Topology(BaseElement):
                         ],
                         "intermediate_geo_nodes": [
                             Wgs84GeoNode(
-                                obj["objects"][geo_node["geo_point"]]["x"],
-                                obj["objects"][geo_node["geo_point"]]["y"],
+                                geo_node["x"],
+                                geo_node["y"],
                                 name=geo_node["name"],
                                 uuid=geo_node["uuid"],
                             )

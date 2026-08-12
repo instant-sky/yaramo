@@ -34,28 +34,82 @@ def point_to_polyline_min_distance(px: float, py: float, reference_polyline: lis
             best = d
     return best
 
-def edge_fully_contained(
+def node_to_closest_other_node_min_distance(node: Node, topology: Topology) -> float:
+    min_distance = float("inf")
+    for reference_node in topology.nodes.values():
+        if reference_node is node:
+            continue
+        distance = abs(node.geo_node.get_distance_to_other_geo_node(reference_node.geo_node))#math.dist((node.geo_node.x, node.geo_node.y), (reference_node.geo_node.x, reference_node.geo_node.y))
+        if distance < min_distance:
+            min_distance = distance
+    return min_distance
+
+def _polyline_length(polyline: list[tuple[float, float]]) -> float:
+    return sum(
+        math.hypot(bx - ax, by - ay)
+        for (ax, ay), (bx, by) in zip(polyline, polyline[1:])
+    )
+
+
+def _covered_length(
     polyline: list[tuple[float, float]],
     reference_polylines: list[list[tuple[float, float]]],
     buffer: float = 10,
-) -> bool:
-    for px, py in polyline:
-        min_dist = float("inf")
-        for reference_polyline in reference_polylines:
-            d = point_to_polyline_min_distance(px, py, reference_polyline)
-            if d < min_dist:
-                min_dist = d
-        if min_dist > buffer:
-            return False
-    return True
+    step: float | None = None,
+) -> float:
+    """Total length of ``polyline`` that lies within ``buffer`` of any reference polyline.
+
+    Points are sampled along every segment (default every ``buffer / 2`` meters) so
+    that long segments without intermediate vertices are measured correctly.
+    """
+    if step is None:
+        step = buffer / 2
+    covered = 0.0
+    for (ax, ay), (bx, by) in zip(polyline, polyline[1:]):
+        seg_length = math.dist((ax, ay), (bx, by))#math.hypot(bx - ax, by - ay)
+        if seg_length == 0.0:
+            continue
+        n = max(1, math.ceil(seg_length / step))
+        for i in range(n):
+            t = (i + 0.5) / n
+            px = ax + (bx - ax) * t
+            py = ay + (by - ay) * t
+            if any(
+                point_to_polyline_min_distance(px, py, reference_polyline) <= buffer
+                for reference_polyline in reference_polylines
+            ):
+                covered += seg_length / n
+    return covered
+
+
+def edge_overlap_ratio(
+    polyline_a: list[tuple[float, float]],
+    polyline_b: list[tuple[float, float]],
+    buffer: float = 10,
+    step: float | None = None,
+) -> float:
+    """Fraction of the shorter of two polylines that lies within ``buffer`` of the other.
+
+    Returns ~1.0 if one polyline is (almost) completely contained in the other, no
+    matter how much longer the containing one is. Returns ~0.0 for polylines that
+    take completely different routes.
+    """
+    len_a = _polyline_length(polyline_a)
+    len_b = _polyline_length(polyline_b)
+    min_len = min(len_a, len_b)
+    if min_len == 0.0:
+        return 0.0
+    covered_a_in_b = _covered_length(polyline_a, [polyline_b], buffer, step)
+    covered_b_in_a = _covered_length(polyline_b, [polyline_a], buffer, step)
+    return min(1.0, max(covered_a_in_b, covered_b_in_a) / min_len)
 
 
 def _get_utm_transformer(
     polylines: list[list[tuple[float, float]]],
 ) -> pyproj.Transformer:
     all_coords = [coord for polyline in polylines for coord in polyline]
-    mean_lon = sum(x for x, y in all_coords) / len(all_coords)
-    mean_lat = sum(y for x, y in all_coords) / len(all_coords)
+    mean_lat = sum(x for x, y in all_coords) / len(all_coords)
+    mean_lon = sum(y for x, y in all_coords) / len(all_coords)
     utm_zone = int((mean_lon + 180) / 6) + 1
     epsg = 32600 + utm_zone if mean_lat >= 0 else 32700 + utm_zone
     return pyproj.Transformer.from_crs(
@@ -67,7 +121,7 @@ def _project_polyline(
     polyline: list[tuple[float, float]],
     transformer: pyproj.Transformer,
 ) -> list[tuple[float, float]]:
-    return [transformer.transform(x, y) for x, y in polyline]
+    return [transformer.transform(y, x) for x, y in polyline]
 
 
 def _short_id(uuid: str, full: bool) -> str:
@@ -286,6 +340,8 @@ def clean_topology(topology: Topology, edges_to_remove: list[Edge]):
 def edge_shape_comparison(
     topology_a: Topology,
     topology_b: Topology,
+    buffer: float = 2.0,
+    overlap_threshold: float = 0.6,
 ):
     raw_polylines_a: dict[Edge, list[tuple[float, float]]] = {
         edge: get_edge_polyline(edge) for edge in topology_a.edges.values()
@@ -321,11 +377,28 @@ def edge_shape_comparison(
 
 
     for edge, polyline in polylines_a.items():
-        if not edge_fully_contained(polyline, polylines_b.values()):
+        # Check also, that at least the start or the end node is in the buffer distance of a node in the other topology!
+        # start_node = edge.node_a
+        # end_node = edge.node_b
+        # print(node_to_closest_other_node_min_distance(start_node, topology_b))
+        # print(node_to_closest_other_node_min_distance(end_node, topology_b))
+        # if not (node_to_closest_other_node_min_distance(start_node, topology_b) <= 2 * buffer or node_to_closest_other_node_min_distance(end_node, topology_b) <= 2 * buffer) or not any(
+        if not any(
+            edge_overlap_ratio(polyline, reference_polyline, buffer=buffer) >= overlap_threshold 
+            for reference_polyline in polylines_b.values()
+        ):
             only_in_a[edge] = raw_polylines_a[edge]
 
     for edge, polyline in polylines_b.items():
-        if not edge_fully_contained(polyline, polylines_a.values()):
+        # start_node = edge.node_a
+        # end_node = edge.node_b
+        # print(node_to_closest_other_node_min_distance(start_node, topology_a))
+        # print(node_to_closest_other_node_min_distance(end_node, topology_a))
+        # if not (node_to_closest_other_node_min_distance(start_node, topology_a) <= 2 * buffer or node_to_closest_other_node_min_distance(end_node, topology_a) <= 2 * buffer) or not any(
+        if not any(
+            edge_overlap_ratio(polyline, reference_polyline, buffer=buffer) >= overlap_threshold
+            for reference_polyline in polylines_a.values()
+        ):
             only_in_b[edge] = raw_polylines_b[edge]
 
     print(f"only in a: {only_in_a}")
@@ -342,6 +415,11 @@ def edge_shape_comparison(
 
     topology_a.update_edge_lengths()
     topology_b.update_edge_lengths()
+
+    print(f"topology_1 nodes {len(topology_a.nodes)}")
+    print(f"topology_2 nodes {len(topology_b.nodes)}")
+    print(f"topology_1 edges {len(topology_a.edges)}")
+    print(f"topology_2 edges {len(topology_b.edges)}")
 
     return topology_a, topology_b
 
