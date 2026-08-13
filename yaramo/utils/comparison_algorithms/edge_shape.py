@@ -288,18 +288,72 @@ def visualize_topologies(
     return fig, (ax_a, ax_b)
 
 
+def _intermediate_geo_nodes_from_node(edge: Edge, from_node: Node) -> list[GeoNode]:
+    """Return the intermediate geo nodes of ``edge`` ordered from ``from_node`` towards the other end."""
+    if edge.node_a is from_node:
+        return list(edge.intermediate_geo_nodes)
+    return list(reversed(edge.intermediate_geo_nodes))
+
+def expand_edges_to_remove(edges_to_remove: list[Edge]):
+    edges_to_expand = edges_to_remove.copy()
+    print(edges_to_expand)
+    print(len(edges_to_expand))
+    i = 0
+    while i < len(edges_to_expand):
+        edge = edges_to_expand[i]
+        node_a = edge.node_a
+        node_b = edge.node_b
+        node_a.calc_anschluss_of_all_edges()
+        node_b.calc_anschluss_of_all_edges()
+        for node in [node_a, node_b]:
+            if node.is_point() and edge == node.connected_edge_on_head:
+                # print(node.connected_edges)
+                left_edge = node.connected_edge_on_left
+                right_edge = node.connected_edge_on_right
+                print(left_edge)
+                print(right_edge)
+                for lr_edge in [left_edge, right_edge]:
+                    if lr_edge not in edges_to_remove:
+                        print("added edge to expandables")
+                        edges_to_remove.append(lr_edge)
+                        edges_to_expand.append(lr_edge)
+        print(len(edges_to_expand))
+        print(edges_to_expand)
+        i += 1
+
+    return edges_to_remove
+        
+
+
 def clean_topology(topology: Topology, edges_to_remove: list[Edge]):
+    print(f"len edges to remove before expanding: {len(edges_to_remove)}")
+
+    edges_to_remove = expand_edges_to_remove(edges_to_remove)
+
+    print(f"len edges to remove after expanding: {len(edges_to_remove)}")
+
+
     for edge in edges_to_remove:
         topology.edges.pop(edge.uuid)
     
-    edges_to_remove_per_node_a: dict[Node, list[Edge]] = {}
+    edges_to_remove_per_node: dict[Node, set[Edge]] = {}
     for edge in edges_to_remove:
-        edges_to_remove_per_node_a.setdefault(edge.node_a, []).append(edge)
-        edges_to_remove_per_node_a.setdefault(edge.node_b, []).append(edge)
+        edges_to_remove_per_node.setdefault(edge.node_a, set()).add(edge)
+        edge.node_a.calc_anschluss_of_all_edges()
+        if edge == edge.node_a.connected_edge_on_head:
+            edges_to_remove_per_node[edge.node_a].update([edge.node_a.connected_edge_on_left, edge.node_a.connected_edge_on_right])
+
+        edges_to_remove_per_node.setdefault(edge.node_b, set()).add(edge)
+        edge.node_b.calc_anschluss_of_all_edges()
+        if edge == edge.node_b.connected_edge_on_head:
+            edges_to_remove_per_node[edge.node_b].update([edge.node_b.connected_edge_on_left, edge.node_b.connected_edge_on_right])
+
         
-    for node, edges in edges_to_remove_per_node_a.items():
+    for node, edges in list(edges_to_remove_per_node.items()):
+        # node.calc_anschluss_of_all_edges()
         for edge in edges:
-            node.remove_edge(edge)
+            if edge in node.connected_edges:
+                node.remove_edge(edge)
         if len(node.connected_edges) == 3:
             raise ValueError("no edges removed but node was connected to removed edge.")
         if len(node.connected_edges) == 2: # illegal node state -> node needs to be removed, adjacent edges form union
@@ -308,6 +362,10 @@ def clean_topology(topology: Topology, edges_to_remove: list[Edge]):
             
             edge_a: Edge = node.connected_edges[0]
             edge_b: Edge = node.connected_edges[1]
+            print("remaining edges: ", set([edge_a, edge_b]))
+            print("edges connected left, right: ", set([node.connected_edge_on_left, node.connected_edge_on_right]))
+            # if set([edge_a, edge_b]) == set([node.connected_edge_on_left, node.connected_edge_on_right]):
+            #     raise ValueError("Edge connected on head removed!")
             if edge_a.uuid in topology.edges:
                 topology.edges.pop(edge_a.uuid)
             if edge_b.uuid in topology.edges:
@@ -316,7 +374,7 @@ def clean_topology(topology: Topology, edges_to_remove: list[Edge]):
             node_a: Node = edge_a.get_opposite_node(node)
             node_b: Node = edge_b.get_opposite_node(node)
 
-            new_edge: Edge = Edge(node_a, node_b, intermediate_geo_nodes=node.connected_edges[0].intermediate_geo_nodes + [node.geo_node] + node.connected_edges[1].intermediate_geo_nodes)
+            new_edge: Edge = Edge(node_a, node_b, intermediate_geo_nodes=_intermediate_geo_nodes_from_node(edge_a, node_a) + [node.geo_node] + _intermediate_geo_nodes_from_node(edge_b, node_b))
             topology.add_edge(new_edge)
 
             node_a.replace_edge(edge_a, new_edge)
@@ -340,7 +398,7 @@ def clean_topology(topology: Topology, edges_to_remove: list[Edge]):
 def edge_shape_comparison(
     topology_a: Topology,
     topology_b: Topology,
-    buffer: float = 2.0,
+    buffer: float = 2, # In Deutschland Mindestgleisabstand 4 Meter. Wenn also buffer < 2 m sollten Überleitstellen ausgeschlossen werden.
     overlap_threshold: float = 0.6,
 ):
     raw_polylines_a: dict[Edge, list[tuple[float, float]]] = {
@@ -372,8 +430,8 @@ def edge_shape_comparison(
             for edge, polyline in raw_polylines_b.items()
         }
 
-    only_in_a: dict[Edge, tuple[float, float]] = {}
-    only_in_b: dict[Edge, tuple[float, float]] = {}
+    only_in_a: list[Edge] = []#: dict[Edge, tuple[float, float]] = {}
+    only_in_b: list[Edge] = []#: dict[Edge, tuple[float, float]] = {}
 
 
     for edge, polyline in polylines_a.items():
@@ -387,7 +445,7 @@ def edge_shape_comparison(
             edge_overlap_ratio(polyline, reference_polyline, buffer=buffer) >= overlap_threshold 
             for reference_polyline in polylines_b.values()
         ):
-            only_in_a[edge] = raw_polylines_a[edge]
+            only_in_a.append(edge)#[edge] = raw_polylines_a[edge]
 
     for edge, polyline in polylines_b.items():
         # start_node = edge.node_a
@@ -399,16 +457,16 @@ def edge_shape_comparison(
             edge_overlap_ratio(polyline, reference_polyline, buffer=buffer) >= overlap_threshold
             for reference_polyline in polylines_a.values()
         ):
-            only_in_b[edge] = raw_polylines_b[edge]
+            only_in_b.append(edge)#[edge] = raw_polylines_b[edge]
 
     print(f"only in a: {only_in_a}")
     print(f"only in b: {only_in_b}")
 
-    visualize_topologies(topology_a, topology_b)
+    visualize_topologies(topology_a, topology_b, highlight_edges_a=only_in_a, highlight_edges_b=only_in_b)
 
     print("continuing3")
 
-    topology_a = clean_topology(topology_a, only_in_a)
+    topology_a = clean_topology(topology_a, only_in_a) # TODO: during topology cleaning, removal of nodes and edges can result in more edges that need to be removed? Also, illegal edges could be created
     topology_b = clean_topology(topology_b, only_in_b)
 
     visualize_topologies(topology_a, topology_b)
