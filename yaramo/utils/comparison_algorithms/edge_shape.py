@@ -374,7 +374,9 @@ def clean_topology(topology: Topology, edges_to_remove: list[Edge]):
             node_a: Node = edge_a.get_opposite_node(node)
             node_b: Node = edge_b.get_opposite_node(node)
 
-            new_edge: Edge = Edge(node_a, node_b, intermediate_geo_nodes=_intermediate_geo_nodes_from_node(edge_a, node_a) + [node.geo_node] + _intermediate_geo_nodes_from_node(edge_b, node_b))
+            new_edge: Edge = Edge(node_a, node_b, intermediate_geo_nodes=_intermediate_geo_nodes_from_node(edge_a, node_a)
+                                   + [node.geo_node] 
+                                   + _intermediate_geo_nodes_from_node(edge_b, node))
             topology.add_edge(new_edge)
 
             node_a.replace_edge(edge_a, new_edge)
@@ -392,6 +394,8 @@ def clean_topology(topology: Topology, edges_to_remove: list[Edge]):
             print(f"removing node {node}")
             topology.nodes.pop(node.uuid)
             visualize_topology(topology, title=f"removed node {_short_id(node.uuid, False)}", highlight_nodes={node})
+
+    topology.update_edge_lengths()
     return topology
 
 
@@ -470,9 +474,6 @@ def edge_shape_comparison(
     topology_b = clean_topology(topology_b, only_in_b)
 
     visualize_topologies(topology_a, topology_b)
-
-    topology_a.update_edge_lengths()
-    topology_b.update_edge_lengths()
 
     print(f"topology_1 nodes {len(topology_a.nodes)}")
     print(f"topology_2 nodes {len(topology_b.nodes)}")
