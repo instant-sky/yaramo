@@ -9,6 +9,8 @@ import pyproj
 
 from ..model import Edge, GeoNode, Node, Signal, SignalDirection, Topology
 from ..utils.comparison_algorithms.edge_shape import edge_shape_comparison
+from ..utils.comparison_algorithms.double_voronoi import _calc_voronoi_map, double_voronoi_matching
+from ..utils.comparison_algorithms.bipartite_graph import _calc_bipartite_matching
 
 
 class CompareMatching:
@@ -43,6 +45,7 @@ class CompareMode(Enum):
     DOUBLE_VORONOI = auto()
     GEOGRAPHIC = auto()
     CONTAINMENT = auto()
+    BIPARTITE = auto()
 
 
 class Compare:
@@ -75,12 +78,12 @@ class Compare:
             Compare._calc_isomorphic_matching(
                 result, topology_a, topology_b, given_node_matching, skip_signals
             )
-        if compare_mode == CompareMode.VORONOI:
-            Compare._calc_voronoi_matching(
-                result, topology_a, topology_b, given_node_matching, skip_signals
-            )
+        # if compare_mode == CompareMode.VORONOI:
+        #     _calc_voronoi_matching(
+        #         result, topology_a, topology_b, given_node_matching, skip_signals
+        #     )
         if compare_mode == CompareMode.DOUBLE_VORONOI:
-            Compare.double_voronoi_matching(
+            double_voronoi_matching(
                 topology_a, topology_b, given_node_matching, skip_signals
             )
         if compare_mode == CompareMode.GEOGRAPHIC:
@@ -96,6 +99,10 @@ class Compare:
             )
             # result = Compare._geo_based_topology_matching(topology_a, topology_b, buffer_meters=5.0)
             # plot_geo_matching_result(topology_a, topology_b, result)
+        if compare_mode == CompareMode.BIPARTITE:
+            print("bipartite cost matching")
+            _calc_bipartite_matching(result, topology_a, topology_b)
+            
 
 
         result.node_distance = Compare._calc_distance_for_matching(
@@ -431,84 +438,84 @@ class Compare:
 #########################################################
 
 
-    @staticmethod
-    def _calc_voronoi_matching(
-        result: CompareResult,
-        topology_a: Topology,
-        topology_b: Topology,
-        given_node_matching: Dict[Node, Node],
-        skip_signals: bool,
-    ):
-        print("calculating voronoi distance")
-        print("num nodes in topology a: ", len(topology_a.nodes))
-        print("num nodes in topology b: ", len(topology_b.nodes))
-        # smaller_topology = topology_a if len(topology_a.nodes) < len(topology_b.nodes) else topology_b
-        # larger_topology = topology_b if smaller_topology == topology_a else topology_a
+    # @staticmethod
+    # def _calc_voronoi_matching(
+    #     result: CompareResult,
+    #     topology_a: Topology,
+    #     topology_b: Topology,
+    #     given_node_matching: Dict[Node, Node],
+    #     skip_signals: bool,
+    # ):
+    #     print("calculating voronoi distance")
+    #     print("num nodes in topology a: ", len(topology_a.nodes))
+    #     print("num nodes in topology b: ", len(topology_b.nodes))
+    #     # smaller_topology = topology_a if len(topology_a.nodes) < len(topology_b.nodes) else topology_b
+    #     # larger_topology = topology_b if smaller_topology == topology_a else topology_a
 
-        voronoi_map: dict[Node, list[Node]] = {}
+    #     voronoi_map: dict[Node, list[Node]] = {}
 
-        #TOOD: the following implementation can get very slow for large datasets!!
-        for node in topology_a.nodes.values():
-            print("node to map: ", node)
-            node_coordinates = [node.geo_node.x, node.geo_node.y]
-            smallest_distance = math.inf
-            matching_reference_node = None
-            for reference_node in topology_b.nodes.values():
-                reference_node_coordinates = [reference_node.geo_node.x, reference_node.geo_node.y]
-                distance = math.dist(node_coordinates, reference_node_coordinates)
-                if distance < smallest_distance:
-                    matching_reference_node = reference_node
-                    smallest_distance = distance
+    #     #TOOD: the following implementation can get very slow for large datasets!!
+    #     for node in topology_a.nodes.values():
+    #         print("node to map: ", node)
+    #         node_coordinates = [node.geo_node.x, node.geo_node.y]
+    #         smallest_distance = math.inf
+    #         matching_reference_node = None
+    #         for reference_node in topology_b.nodes.values():
+    #             reference_node_coordinates = [reference_node.geo_node.x, reference_node.geo_node.y]
+    #             distance = math.dist(node_coordinates, reference_node_coordinates)
+    #             if distance < smallest_distance:
+    #                 matching_reference_node = reference_node
+    #                 smallest_distance = distance
 
-            print("matching node: ", matching_reference_node) 
-            voronoi_map.setdefault(matching_reference_node, []).append(node)
+    #         print("matching node: ", matching_reference_node) 
+    #         voronoi_map.setdefault(matching_reference_node, []).append(node)
 
-        print(voronoi_map)
-        return voronoi_map
+    #     print(voronoi_map)
+    #     return voronoi_map
 
 
-    @staticmethod
-    def double_voronoi_matching(
-        topology_a: Topology,
-        topology_b: Topology,
-        given_node_matching: Dict[Node, Node],
-        skip_signals: bool,
-    ):
+    # @staticmethod
+    # def double_voronoi_matching(
+    #     topology_a: Topology,
+    #     topology_b: Topology,
+    #     given_node_matching: Dict[Node, Node],
+    #     skip_signals: bool,
+    # ):
 
-        def geo_path_to_ground_truth(correct_nodes: list[Node], node):
-            """
-            Find path to ground truth node. 
+    #     def geo_path_to_ground_truth(correct_nodes: list[Node], node):
+    #         """
+    #         Find path to ground truth node. 
             
             
-            """
+    #         """
 
 
 
-        # First, calculate Voronoi matching in one direction
-        result_1 = CompareResult()
-        map_1 = Compare._calc_voronoi_matching(result=result_1, topology_a=topology_a, topology_b=topology_b, given_node_matching=given_node_matching, skip_signals=skip_signals)
-        map_2 = Compare._calc_voronoi_matching(result=result_1, topology_a=topology_b, topology_b=topology_a, given_node_matching={v: k for k, v in given_node_matching.items()}, skip_signals=skip_signals)
-        locked_nodes_a = given_node_matching.keys()
-        locked_nodes_b = given_node_matching.values()
+    #     # First, calculate Voronoi matching in one direction
+    #     result_1 = CompareResult()
+    #     map_1 = Compare._calc_voronoi_matching(result=result_1, topology_a=topology_a, topology_b=topology_b, given_node_matching=given_node_matching, skip_signals=skip_signals)
+    #     map_2 = Compare._calc_voronoi_matching(result=result_1, topology_a=topology_b, topology_b=topology_a, given_node_matching={v: k for k, v in given_node_matching.items()}, skip_signals=skip_signals)
+    #     locked_nodes_a = given_node_matching.keys()
+    #     locked_nodes_b = given_node_matching.values()
 
-        guaranteed = {
-            a: bs[0]
-            for a, bs in map_1.items()
-            if len(bs) == 1 and map_2.get(bs[0]) == [a]
-        }
+    #     guaranteed = {
+    #         a: bs[0]
+    #         for a, bs in map_1.items()
+    #         if len(bs) == 1 and map_2.get(bs[0]) == [a]
+    #     }
 
-        # Dieser Ansatz kann natürlich immer noch für falsche Mappings sorgen:
-        # Wenn node_a nur in topologie_a und node_b nur in topologie_b ist, beide aber zueinander die nächsten Nodes sind. 
-        # Zumindest, wenn es keine anderen Nodes als Kandidaten gibt, würden dann node_a <-> node_b als garantiertes mapping
-        # ausgegeben, was aber natürlich trotzdem nicht richtig wäre. Hier bräuchte es dann doch wieder eine topologische 
-        # Überprüfung. Vielleicht würde auch eine Kombination mit dem Containment-Fall funktionieren. 
+    #     # Dieser Ansatz kann natürlich immer noch für falsche Mappings sorgen:
+    #     # Wenn node_a nur in topologie_a und node_b nur in topologie_b ist, beide aber zueinander die nächsten Nodes sind. 
+    #     # Zumindest, wenn es keine anderen Nodes als Kandidaten gibt, würden dann node_a <-> node_b als garantiertes mapping
+    #     # ausgegeben, was aber natürlich trotzdem nicht richtig wäre. Hier bräuchte es dann doch wieder eine topologische 
+    #     # Überprüfung. Vielleicht würde auch eine Kombination mit dem Containment-Fall funktionieren. 
 
-        # for node, candidates in map_1:
+    #     # for node, candidates in map_1:
                 
-        print("maps")
-        print("map_1: ", map_1)
-        print("map_2: ", map_2)
-        print("guaranteed: ", {a.name: b.name for a, b in guaranteed.items()})
+    #     print("maps")
+    #     print("map_1: ", map_1)
+    #     print("map_2: ", map_2)
+    #     print("guaranteed: ", {a.name: b.name for a, b in guaranteed.items()})
 
         # Second, calculate Voronoi matching in other direction
 

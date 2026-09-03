@@ -186,12 +186,12 @@ class Edge(BaseElement):
         GeoNode
             The next GeoNode
         """
-        if len(self.intermediate_geo_nodes) < 2:
+        if len(self.intermediate_geo_nodes) == 0:
             return self.get_opposite_node(node).geo_node
         if self.node_a.uuid == node.uuid:
-            return self.intermediate_geo_nodes[1]
+            return self.intermediate_geo_nodes[0]
         if self.node_b.uuid == node.uuid:
-            return self.intermediate_geo_nodes[-2]
+            return self.intermediate_geo_nodes[-1]
         return None
 
     def get_coordinates_on_edge_by_distance_from_start_node(
