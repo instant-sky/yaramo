@@ -53,7 +53,7 @@ def get_orientation_cost(node_a: Node, node_b: Node) -> float:
             for angle_b in node_b_angles:
                 cost = angle_difference(angle_a, angle_b) / 180
                 best_cost = min(cost, best_cost)
-        return 1.0 - (best_cost / 3.0) # normalize because only one edge can be matched
+        return best_cost / 3.0 # normalize because only one edge can be matched
 
 
     for permutation in itertools.permutations(node_b_angles):
