@@ -57,6 +57,7 @@ class Compare:
         given_node_matching: Dict[Node, Node] | None = None,
         exclude_element_list=None,
         skip_signals: bool = False,
+        bipartite_max_distance: float | None = None,
     ) -> CompareResult:
         print("compare started")
         if given_node_matching is None:
@@ -101,7 +102,7 @@ class Compare:
             # plot_geo_matching_result(topology_a, topology_b, result)
         if compare_mode == CompareMode.BIPARTITE:
             print("bipartite cost matching")
-            _calc_bipartite_matching(result, topology_a, topology_b)
+            _calc_bipartite_matching(result, topology_a, topology_b, max_distance=bipartite_max_distance)
             
 
 

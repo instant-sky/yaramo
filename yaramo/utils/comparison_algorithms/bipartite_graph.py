@@ -84,24 +84,26 @@ def get_total_cost(node_a: Node, node_b: Node, distance_matrix: dict[Node, dict[
     )
 
 
-def create_bipartite_graph_from_topologies(topology_a: Topology, topology_b: Topology):
-    distance_matrix, max_distance = calculate_distance_matrix(topology_a, topology_b)
+def create_bipartite_graph_from_topologies(topology_a: Topology, topology_b: Topology, max_distance: float | None = None):
+    distance_matrix, global_max_distance = calculate_distance_matrix(topology_a, topology_b)
     graph = nx.Graph()
     graph.add_nodes_from(topology_a.nodes.values(), bipartite=0)
     graph.add_nodes_from(topology_b.nodes.values(), bipartite=1)
 
     for node_a in topology_a.nodes.values():
         for node_b in topology_b.nodes.values():
-            cost = get_total_cost(node_a, node_b, distance_matrix, max_distance)
+            if max_distance is not None and distance_matrix[node_a][node_b] > max_distance:
+                continue
+            cost = get_total_cost(node_a, node_b, distance_matrix, global_max_distance)
             graph.add_edge(node_a, node_b, weight=cost)
 
     return graph
 
 
-def _calc_bipartite_matching(result: "CompareResult", topology_a: Topology, topology_b: Topology):
+def _calc_bipartite_matching(result: "CompareResult", topology_a: Topology, topology_b: Topology, max_distance: float | None = None):
 
 
-    graph = create_bipartite_graph_from_topologies(topology_a, topology_b)
+    graph = create_bipartite_graph_from_topologies(topology_a, topology_b, max_distance=max_distance)
 
     matching: set[tuple[Node, Node]] = nx.min_weight_matching(graph, weight="weight")
 
