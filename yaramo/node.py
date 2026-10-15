@@ -173,6 +173,9 @@ class Node(BaseElement):
         if len(self.connected_edges) == 1:
             self.connected_edge_on_head = self.connected_edges[0]
             return
+
+        if len(self.connected_edges) != 3:
+            return
         almost_zero = sys.float_info.epsilon
 
         def get_rad_between_nodes(geo_node_a: GeoNode, geo_node_b: GeoNode) -> float:

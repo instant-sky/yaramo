@@ -1,4 +1,5 @@
 from ...model import Topology, Edge, Node, GeoNode, Wgs84GeoNode, EdgeConnectionDirection
+from .comparison_utils import visualize_topologies, visualize_topology, get_edge_polyline
 
 import math
 import networkx as nx
@@ -6,9 +7,6 @@ import matplotlib.pyplot as plt
 import pyproj
 
 
-def get_edge_polyline(edge: Edge) -> list[tuple[float, float]]:
-    coordinates = [(geo_node.x, geo_node.y) for geo_node in [edge.node_a.geo_node] + edge.intermediate_geo_nodes + [edge.node_b.geo_node]]
-    return coordinates
 
 def point_segment_distance(
         px: float, py: float, ax: float, ay: float, bx: float, by: float
@@ -85,7 +83,7 @@ def _covered_length(
 def edge_overlap_ratio(
     polyline_a: list[tuple[float, float]],
     polyline_b: list[tuple[float, float]],
-    buffer: float = 10,
+    buffer: float = None,
     step: float | None = None,
 ) -> float:
     """Fraction of the shorter of two polylines that lies within ``buffer`` of the other.
@@ -124,168 +122,6 @@ def _project_polyline(
     return [transformer.transform(y, x) for x, y in polyline]
 
 
-def _short_id(uuid: str, full: bool) -> str:
-    return uuid if full else uuid[-4:]
-
-
-def _to_plot_coordinates(geo_node: GeoNode) -> tuple[float, float]:
-    """Return the (horizontal, vertical) plot coordinates of a geo node.
-
-    ``Wgs84GeoNode`` stores latitude in ``x`` and longitude in ``y`` (the order
-    expected by the haversine library), so the values are swapped here to get the
-    usual map orientation with longitude east-west on the x-axis.
-    """
-    if isinstance(geo_node, Wgs84GeoNode):
-        return (float(geo_node.y), float(geo_node.x))
-    return (float(geo_node.x), float(geo_node.y))
-
-
-def visualize_topology(
-    topology: Topology,
-    title: str | None = None,
-    highlight_nodes: set[Node] | None = None,
-    highlight_edges: set[Edge] | None = None,
-    label_nodes: bool = True,
-    label_edges: bool = False,
-    full_labels: bool = False,
-    show: bool = True,
-    block: bool = True,
-    save_path: str | None = None,
-    ax=None,
-):
-    """Draw a Topology using the geo positions of its Nodes and the polylines of
-    its Edges (node_a -> intermediate_geo_nodes -> node_b).
-
-    Nodes/edges in ``highlight_nodes``/``highlight_edges`` are drawn in red. They
-    are also drawn if they were already removed from the topology (but still carry
-    their geo information), which is useful right after a node got merged away.
-
-    ``show=False`` can be used to draw into a provided ``ax`` without blocking
-    (e.g. to plot two topologies next to each other).
-    """
-    highlight_nodes = highlight_nodes or set()
-    highlight_edges = highlight_edges or set()
-
-    if ax is None:
-        fig, ax = plt.subplots(figsize=(12, 8))
-
-    # positions for all current nodes, plus highlighted nodes that are no longer
-    # part of the topology (e.g. a node that was just removed)
-    positions: dict[Node, tuple[float, float]] = {}
-    for node in topology.nodes.values():
-        if node.geo_node is not None:
-            positions[node] = _to_plot_coordinates(node.geo_node)
-    for node in highlight_nodes:
-        if node not in positions and node.geo_node is not None:
-            positions[node] = _to_plot_coordinates(node.geo_node)
-
-    # edges as polylines, plus highlighted edges no longer in the topology
-    edges = list(topology.edges.values())
-    for edge in highlight_edges:
-        if edge not in edges:
-            edges.append(edge)
-    for edge in edges:
-        coords = get_edge_polyline(edge)
-        if isinstance(edge.node_a.geo_node, Wgs84GeoNode):
-            coords = [(c[1], c[0]) for c in coords]
-        xs, ys = [c[0] for c in coords], [c[1] for c in coords]
-        highlighted = edge in highlight_edges
-        ax.plot(
-            xs,
-            ys,
-            color="tab:red" if highlighted else "0.6",
-            lw=3.0 if highlighted else 1.2,
-            solid_capstyle="round",
-            zorder=2,
-        )
-        for geo_node in edge.intermediate_geo_nodes:
-            px, py = _to_plot_coordinates(geo_node)
-            ax.scatter([px], [py], color="0.3", s=10, zorder=2.5)
-        if label_edges or highlighted:
-            mid = coords[len(coords) // 2]
-            ax.annotate(
-                _short_id(edge.uuid, full_labels),
-                (mid[0], mid[1]),
-                fontsize=7,
-                color="tab:red" if highlighted else "0.4",
-                zorder=4,
-            )
-
-    # nodes at their geo positions
-    for node, (x, y) in positions.items():
-        highlighted = node in highlight_nodes
-        ax.scatter(
-            [x],
-            [y],
-            color="tab:red" if highlighted else "tab:blue",
-            s=90 if highlighted else 40,
-            marker="^" if highlighted else "o",
-            zorder=3,
-        )
-        if label_nodes:
-            ax.annotate(
-                _short_id(node.uuid, full_labels),
-                (x, y),
-                textcoords="offset points",
-                xytext=(5, 5),
-                fontsize=8,
-                zorder=4,
-            )
-
-    ax.set_title(title or f"{len(topology.nodes)} nodes, {len(topology.edges)} edges")
-
-    # WGS84 uses (longitude, latitude): stretch x by 1/cos(lat) so the plot is not distorted
-    wgs84_lats = [pos[1] for node, pos in positions.items() if isinstance(node.geo_node, Wgs84GeoNode)]
-    if wgs84_lats:
-        mean_lat = sum(wgs84_lats) / len(wgs84_lats)
-        ax.set_aspect(1.0 / math.cos(math.radians(mean_lat)))
-    else:
-        ax.set_aspect("equal")
-
-    if save_path:
-        plt.savefig(save_path, dpi=150, bbox_inches="tight")
-    if show:
-        plt.show(block=block)
-    return ax
-
-
-def visualize_topologies(
-    topology_a: Topology,
-    topology_b: Topology,
-    title_a: str = "Topology A",
-    title_b: str = "Topology B",
-    highlight_nodes_a: set[Node] | None = None,
-    highlight_nodes_b: set[Node] | None = None,
-    highlight_edges_a: set[Edge] | None = None,
-    highlight_edges_b: set[Edge] | None = None,
-    show: bool = True,
-    block: bool = True,
-    save_path: str | None = None,
-):
-    """Draw two Topologies side by side on shared axes for debugging comparisons."""
-    fig, (ax_a, ax_b) = plt.subplots(1, 2, figsize=(18, 8), sharex=True, sharey=True)
-    visualize_topology(
-        topology_a,
-        title=title_a,
-        highlight_nodes=highlight_nodes_a,
-        highlight_edges=highlight_edges_a,
-        show=False,
-        ax=ax_a,
-    )
-    visualize_topology(
-        topology_b,
-        title=title_b,
-        highlight_nodes=highlight_nodes_b,
-        highlight_edges=highlight_edges_b,
-        show=False,
-        ax=ax_b,
-    )
-    fig.tight_layout()
-    if save_path:
-        fig.savefig(save_path, dpi=150, bbox_inches="tight")
-    if show:
-        plt.show(block=block)
-    return fig, (ax_a, ax_b)
 
 
 def _intermediate_geo_nodes_from_node(edge: Edge, from_node: Node) -> list[GeoNode]:
@@ -328,7 +164,7 @@ def expand_edges_to_remove(edges_to_remove: list[Edge]):
 def clean_topology(topology: Topology, edges_to_remove: list[Edge]):
     print(f"len edges to remove before expanding: {len(edges_to_remove)}")
 
-    edges_to_remove = expand_edges_to_remove(edges_to_remove)
+    # edges_to_remove = expand_edges_to_remove(edges_to_remove)
 
     print(f"len edges to remove after expanding: {len(edges_to_remove)}")
 
@@ -381,19 +217,19 @@ def clean_topology(topology: Topology, edges_to_remove: list[Edge]):
 
             node_a.replace_edge(edge_a, new_edge)
             node_b.replace_edge(edge_b, new_edge)
-            visualize_topology(
-                topology,
-                title=f"merged edges at node {_short_id(node.uuid, False)}",
-                highlight_nodes={node},
-                highlight_edges={edge_a, edge_b},
-            )
+            # visualize_topology(
+            #     topology,
+            #     title=f"merged edges at node {_short_id(node.uuid, False)}",
+            #     highlight_nodes={node},
+            #     highlight_edges={edge_a, edge_b},
+            # )
         if len(node.connected_edges) == 1: # switch -> end, legal
             print("legal node remaining")
             continue
         if len(node.connected_edges) == 0: # all edges removed, just remove node
             print(f"removing node {node}")
             topology.nodes.pop(node.uuid)
-            visualize_topology(topology, title=f"removed node {_short_id(node.uuid, False)}", highlight_nodes={node})
+            # visualize_topology(topology, title=f"removed node {_short_id(node.uuid, False)}", highlight_nodes={node})
 
     topology.update_edge_lengths()
     return topology
@@ -402,14 +238,15 @@ def clean_topology(topology: Topology, edges_to_remove: list[Edge]):
 def edge_shape_comparison(
     topology_a: Topology,
     topology_b: Topology,
-    buffer: float = 2, # In Deutschland Mindestgleisabstand 4 Meter. Wenn also buffer < 2 m sollten Überleitstellen ausgeschlossen werden.
+    buffer: float = 2, # In Deutschland Mindestgleisabstand 4 Meter. Wenn also buffer ungefähr < 2 m sollten Überleitstellen ausgeschlossen werden.
     overlap_threshold: float = 0.6,
 ):
+    # get polylines of topologies a and b
     raw_polylines_a: dict[Edge, list[tuple[float, float]]] = {
         edge: get_edge_polyline(edge) for edge in topology_a.edges.values()
     }
 
-    raw_polylines_b = {
+    raw_polylines_b: dict[Edge, list[tuple[float, float]]] = {
         edge: get_edge_polyline(edge) for edge in topology_b.edges.values()
     }
 
@@ -434,44 +271,43 @@ def edge_shape_comparison(
             for edge, polyline in raw_polylines_b.items()
         }
 
-    only_in_a: list[Edge] = []#: dict[Edge, tuple[float, float]] = {}
-    only_in_b: list[Edge] = []#: dict[Edge, tuple[float, float]] = {}
 
+    # Get edges that are only present in one topology based on their geographical overlap with the edges of the other topology 
+    only_in_a: list[Edge] = []
+    only_in_b: list[Edge] = []
 
     for edge, polyline in polylines_a.items():
-        # Check also, that at least the start or the end node is in the buffer distance of a node in the other topology!
-        # start_node = edge.node_a
-        # end_node = edge.node_b
-        # print(node_to_closest_other_node_min_distance(start_node, topology_b))
-        # print(node_to_closest_other_node_min_distance(end_node, topology_b))
-        # if not (node_to_closest_other_node_min_distance(start_node, topology_b) <= 2 * buffer or node_to_closest_other_node_min_distance(end_node, topology_b) <= 2 * buffer) or not any(
         if not any(
             edge_overlap_ratio(polyline, reference_polyline, buffer=buffer) >= overlap_threshold 
             for reference_polyline in polylines_b.values()
         ):
-            only_in_a.append(edge)#[edge] = raw_polylines_a[edge]
+            only_in_a.append(edge)
 
     for edge, polyline in polylines_b.items():
-        # start_node = edge.node_a
-        # end_node = edge.node_b
-        # print(node_to_closest_other_node_min_distance(start_node, topology_a))
-        # print(node_to_closest_other_node_min_distance(end_node, topology_a))
-        # if not (node_to_closest_other_node_min_distance(start_node, topology_a) <= 2 * buffer or node_to_closest_other_node_min_distance(end_node, topology_a) <= 2 * buffer) or not any(
         if not any(
             edge_overlap_ratio(polyline, reference_polyline, buffer=buffer) >= overlap_threshold
             for reference_polyline in polylines_a.values()
         ):
-            only_in_b.append(edge)#[edge] = raw_polylines_b[edge]
+            only_in_b.append(edge)
+
+
+    only_in_a = expand_edges_to_remove(only_in_a)
+    only_in_b = expand_edges_to_remove(only_in_b)
 
     print(f"only in a: {only_in_a}")
     print(f"only in b: {only_in_b}")
 
+    # show both topologies, highlight the edges to be removed. 
     visualize_topologies(topology_a, topology_b, highlight_edges_a=only_in_a, highlight_edges_b=only_in_b)
 
     print("continuing3")
 
-    topology_a = clean_topology(topology_a, only_in_a) # TODO: during topology cleaning, removal of nodes and edges can result in more edges that need to be removed? Also, illegal edges could be created
+    # remove edges that are only present in one of the two topologies
+    # propagate changes in case of illegal states (illegal nodes, geographically impossible edges)
+    topology_a = clean_topology(topology_a, only_in_a)
     topology_b = clean_topology(topology_b, only_in_b)
+
+    # TODO: What if I would also give the start/end nodes some greateer weight?
 
     visualize_topologies(topology_a, topology_b)
 
@@ -481,58 +317,3 @@ def edge_shape_comparison(
     print(f"topology_2 edges {len(topology_b.edges)}")
 
     return topology_a, topology_b
-
-    # remove edges from topology
-    # for edge in only_in_a:
-    #     topology_a.edges.pop(edge.uuid)
-    
-    # edges_to_remove_per_node_a: dict[Node, list[Edge]] = {}
-    # for edge in only_in_a:
-    #     edges_to_remove_per_node_a.setdefault(edge.node_a, []).append(edge)
-    #     edges_to_remove_per_node_a.setdefault(edge.node_b, []).append(edge)
-        
-    # for node, edges in edges_to_remove_per_node_a.items():
-    #     for edge in edges:
-    #         node.remove_edge(edge)
-    #     if len(node.connected_edges) == 3:
-    #         raise ValueError("no edges removed but node was connected to removed edge.")
-    #     if len(node.connected_edges) == 2: # illegal node state -> node needs to be removed, adjacent edges form union
-    #         topology_a.nodes.pop(node.uuid)
-            
-    #         edge_a: Edge = node.connected_edges[0]
-    #         edge_b: Edge = node.connected_edges[1]
-    #         if edge_a.uuid in topology_a.edges:
-    #             topology_a.edges.pop(edge_a.uuid)
-    #         if edge_b.uuid in topology_a.edges:
-    #             topology_a.edges.pop(edge_b.uuid)
-
-    #         node_a: Node = edge_a.get_opposite_node(node)
-    #         node_b: Node = edge_b.get_opposite_node(node)
-
-    #         new_edge: Edge = Edge(node_a, node_b, intermediate_geo_nodes=node.connected_edges[0].intermediate_geo_nodes + [node.geo_node] + node.connected_edges[1].intermediate_geo_nodes)
-    #         topology_a.add_edge(new_edge)
-
-    #         node_a.replace_edge(edge_a, new_edge)
-    #         node_b.replace_edge(edge_b, new_edge)
-    #         visualize_topology(
-    #             topology_a,
-    #             title=f"merged edges at node {_short_id(node.uuid, False)}",
-    #             highlight_nodes={node},
-    #             highlight_edges={edge_a, edge_b},
-    #         )
-    #     if len(node.connected_edges) == 1: # switch -> end, legal
-    #         continue
-    #     if len(node.connected_edges) == 0: # all edges removed, just remove node
-    #         topology_a.nodes.pop(node.uuid)
-
-    visualize_topology(
-        topology=topology_a,
-        title="topology_a after removal",
-    )
-    print(f"nodes: {len(topology_a.nodes)}")
-    print(f"edges: {len(topology_a.edges)}")
-
-    # remove edges with corresponding nodes (using combine/split methods by Arne?)
-    # to create isomorph graphs
-
-    # use isomorphic matching
