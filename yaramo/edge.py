@@ -29,6 +29,7 @@ class Edge(BaseElement):
         intermediate_geo_nodes: List[GeoNode] = None,
         signals: list[Signal] = None,
         maximum_speed: int = None,
+        tags: dict = None,
         **kwargs,
     ):
         """
@@ -56,6 +57,7 @@ class Edge(BaseElement):
             self.length = float(self.length)
         self.maximum_speed = maximum_speed
         self.vacancy_section = vacancy_section
+        self.tags = tags
 
     def is_node_connected(self, other_node) -> bool:
         return self.node_a == other_node or self.node_b == other_node
