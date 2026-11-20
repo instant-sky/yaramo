@@ -1,7 +1,8 @@
-from ...model import Topology, Node, Edge, Wgs84GeoNode, GeoNode
+import math
 
 import matplotlib.pyplot as plt
-import math
+
+from ...model import Edge, GeoNode, Node, Topology, Wgs84GeoNode
 
 
 def get_edge_polyline(edge: Edge) -> list[tuple[float, float]]:

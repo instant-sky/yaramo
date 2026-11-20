@@ -1,5 +1,6 @@
 from yaramo.model import Topology
 
+
 def edge_ends_comparison(
         topology_a: Topology,
         topology_b: Topology,

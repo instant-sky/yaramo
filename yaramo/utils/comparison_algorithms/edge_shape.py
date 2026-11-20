@@ -1,11 +1,13 @@
-from ...model import Topology, Edge, Node, GeoNode, Wgs84GeoNode, EdgeConnectionDirection
-from .comparison_utils import visualize_topologies, visualize_topology, get_edge_polyline
-
 import math
-import networkx as nx
+
 import matplotlib.pyplot as plt
+import networkx as nx
 import pyproj
 
+from ...model import (Edge, EdgeConnectionDirection, GeoNode, Node, Topology,
+                      Wgs84GeoNode)
+from .comparison_utils import (get_edge_polyline, visualize_topologies,
+                               visualize_topology)
 
 
 def point_segment_distance(

@@ -1,8 +1,11 @@
-from ...model import Topology, Node
-import networkx as nx
-import math
 import itertools
+import math
+
+import networkx as nx
+
+from ...model import Node, Topology
 from ..comparison_algorithms.comparison_utils import visualize_topologies
+
 # from ...operations.compare import CompareResult
 
 def calculate_distance_matrix(topology_a: Topology, topology_b: Topology) -> dict[Node, dict[Node, float]]:

@@ -1,7 +1,9 @@
-from ...model import Topology, Node
+import math
+
+from ...model import Node, Topology
+
 # from ...operations.compare import CompareResult
 
-import math
 
 def _calc_voronoi_map(
         topology_a: Topology,
